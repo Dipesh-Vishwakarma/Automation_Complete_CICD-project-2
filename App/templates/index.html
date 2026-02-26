@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome Home</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="welcome-body">
+    <div class="stars"></div>
+    <div class="stars2"></div>
+    <div class="stars3"></div>
+    
+    <div class="welcome-container">
+        <div class="welcome-card">
+            <div class="welcome-icon">✅</div>
+            <h1 class="welcome-title">
+                <span class="greeting">Welcome</span>
+                <span class="username-animated">{{ username }}!</span>
+            </h1>
+            <p class="welcome-message">You've successfully logged in my website 🌐</p>
+            <div class="welcome-animation">
+                <div class="circle"></div>
+                <div class="circle"></div>
+                <div class="circle"></div>
+            </div>
+            <a href="/logout" class="logout-btn">
+                <span>Logout</span>
+            </a>
+        </div>
+    </div>
+    
+    <script src="/static/script.js"></script>
+</body>
+
+</html>
+
+
+
+
