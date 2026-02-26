@@ -1,4 +1,3 @@
-
 ---
 - name: Configure App Server
   hosts: app
@@ -178,5 +177,4 @@
         -m ec2 \
         -c file:{{ cw_config_path }} \
         -s
-
 

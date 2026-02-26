@@ -132,8 +132,8 @@ ${monIP} ansible_user=ubuntu
                         passwordVariable: 'GIT_TOKEN'
                     )]) {
                         sh """
-                            git config user.name "Light-zzz"
-                            git config user.email "dipeshvishwa767@gmail.com"
+                            git config user.name "Dipesh-Vishwakarma"
+                            git config user.email "dipeshaws767@gmail.com"
                             
                             git add ansible/inventory.ini
                             
@@ -141,7 +141,7 @@ ${monIP} ansible_user=ubuntu
                                 echo "No changes to commit"
                             else
                                 git commit -m "Update Ansible inventory from Jenkins - AppVM: ${appIP}, MonitorVM: ${monIP}"
-                                git push https://\$GIT_USER:\$GIT_TOKEN@github.com/Light-zzz/DevOps_2_tier_Project-2.git HEAD:main
+                                git push https://\$GIT_USER:\$GIT_TOKEN@github.com/Dipesh-Vishwakarma/Automation_Complete_CICD-project-2.git HEAD:main
                                 echo "Inventory file pushed to GitHub successfully"
                             fi
                         """
