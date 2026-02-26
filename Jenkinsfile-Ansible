@@ -1,0 +1,189 @@
+pipeline {
+    agent {label 'web-app'}
+
+    environment {
+        ANSIBLE_HOST_KEY_CHECKING = "False"
+    }
+
+    stages {
+        // Step 1: Git Clone using SCM
+        stage('Step 1: Git Clone') {
+            steps {
+                checkout scm
+                echo 'Repository cloned successfully using SCM'
+            }
+        }
+
+        // Step 2: Check Ansible Version and Verify Setup
+        stage('Step 2: Check Ansible Version and Verify Setup') {
+            steps {
+                script {
+                    // Check if Ansible is installed
+                    def ansibleInstalled = sh(
+                        script: 'command -v ansible >/dev/null 2>&1 && echo "yes" || echo "no"',
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (ansibleInstalled == 'no') {
+                        echo 'Ansible not found. Installing Ansible...'
+                        sh '''
+                            sudo apt update
+                            sudo apt install -y ansible
+                        '''
+                    } else {
+                        echo 'Ansible is already installed'
+                    }
+                    
+                    // Check Ansible version
+                    def ansibleVersion = sh(
+                        script: 'ansible --version | head -n 1',
+                        returnStdout: true
+                    ).trim()
+                    echo "Ansible Version: ${ansibleVersion}"
+                    
+                    // Verify Ansible setup
+                    sh '''
+                        echo "Verifying Ansible setup..."
+                        pwd
+                        ls -la ansible/
+                        echo "--- Inventory file contents ---"
+                        cat ansible/inventory.ini
+                        echo "--- End of inventory file ---"
+                    '''
+                    
+                    // Verify inventory file exists and is readable
+                    def inventoryExists = sh(
+                        script: 'test -f ansible/inventory.ini && echo "yes" || echo "no"',
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (inventoryExists == 'no') {
+                        error('Ansible inventory file (ansible/inventory.ini) not found!')
+                    }
+                    
+                    // List inventory
+                    sh 'ansible-inventory -i ansible/inventory.ini --list'
+                    echo 'Ansible setup verified successfully'
+                }
+            }
+        }
+
+        // Step 3: Fetch AppVM IP and Run app.yml Playbook
+        stage('Step 3: Run app.yml on AppVM') {
+            steps {
+                script {
+                    // Fetch AppVM IP from inventory.ini
+                    def appIP = sh(
+                        script: """
+                            grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (!appIP) {
+                        error('Failed to extract AppVM IP from inventory.ini')
+                    }
+                    
+                    echo "AppVM IP: ${appIP}"
+                    echo "Running app.yml playbook on AppVM (${appIP})..."
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'ansible-ssh',
+                        keyFileVariable: 'SSH_KEY'
+                    )]) {
+                        sh """
+                            chmod 600 "\$SSH_KEY"
+                            
+                            cd ansible
+                            
+                            ansible-playbook \
+                                -i inventory.ini \
+                                --private-key "\$SSH_KEY" \
+                                --limit app \
+                                app.yml
+                            
+                            echo "app.yml playbook completed successfully on AppVM (${appIP})"
+                        """
+                    }
+                }
+            }
+        }
+
+        // Step 4: Fetch MonitorVM IP and Run monitor.yml Playbook
+        stage('Step 4: Run monitor.yml on MonitorVM') {
+            steps {
+                script {
+                    // Fetch MonitorVM IP from inventory.ini
+                    def monIP = sh(
+                        script: """
+                            grep -A 1 '^\\[monitor\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (!monIP) {
+                        error('Failed to extract MonitorVM IP from inventory.ini')
+                    }
+                    
+                    echo "MonitorVM IP: ${monIP}"
+                    echo "Running monitor.yml playbook on MonitorVM (${monIP})..."
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'ansible-ssh',
+                        keyFileVariable: 'SSH_KEY'
+                    )]) {
+                        sh """
+                            chmod 600 "\$SSH_KEY"
+                            
+                            cd ansible
+                            
+                            ansible-playbook \
+                                -i inventory.ini \
+                                --private-key "\$SSH_KEY" \
+                                --limit monitor \
+                                monitor.yml
+                            
+                            echo "monitor.yml playbook completed successfully on MonitorVM (${monIP})"
+                        """
+                    }
+                }
+            }
+        }
+
+        // Step 5: Show Success Message and Trigger Deployment Pipeline
+        stage('Step 5: Ansible Playbooks Completed') {
+            steps {
+                script {
+                    echo '========================================'
+                    echo 'All Ansible playbooks completed successfully!'
+                    echo 'app.yml executed on AppVM'
+                    echo 'monitor.yml executed on MonitorVM'
+                    echo '========================================'
+                    echo 'Triggering Deployment Pipeline...'
+                    
+                    // Trigger Jenkinsfile-Deployment pipeline
+                    build job: 'Deployment-Pipeline', wait: false
+                    echo 'Deployment-Pipeline job triggered successfully'
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '========================================'
+            echo 'Ansible pipeline completed successfully!'
+            echo 'All playbooks executed successfully'
+            echo 'Deployment pipeline has been triggered'
+            echo '========================================'
+        }
+        failure {
+            echo '========================================'
+            echo 'Ansible pipeline failed'
+            echo '========================================'
+        }
+        always {
+            echo 'Ansible pipeline execution completed'
+        }
+    }
+}

@@ -1,0 +1,181 @@
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['apply', 'destroy'],
+            description: 'Terraform Action "Apply or Destroy"',
+            //defaultValue: "apply"
+        )
+    }
+
+    stages {
+        // Step 1: Git Clone using SCM
+        stage('Step 1: Git Clone') {
+            steps {
+                checkout scm
+                echo 'Repository cloned successfully using SCM'
+            }
+        }
+
+        // Step 2: Terraform Init
+        stage('Step 2: Terraform Init') {
+            steps {
+                dir('Terraform') {
+                    sh 'terraform init -reconfigure'
+                    echo 'Terraform initialization completed successfully'
+                }
+            }
+        }
+
+        // Step 3: Terraform Plan
+        stage('Step 3: Terraform Plan') {
+            steps {
+                dir('Terraform') {
+                    script {
+                        if (params.ACTION == 'destroy') {
+                            sh '''
+                                terraform plan \
+                                  -input=false \
+                                  -destroy \
+                                  -out=tfplan
+                            '''
+                            echo 'Terraform destroy plan completed'
+                        } else {
+                            sh '''
+                                terraform plan \
+                                  -input=false \
+                                  -out=tfplan
+                            '''
+                            echo 'Terraform apply plan completed'
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 4: Terraform Apply or Destroy
+        stage('Step 4: Terraform Apply or Destroy') {
+            steps {
+                dir('Terraform') {
+                    script {
+                        if (params.ACTION == 'destroy') {
+                            sh 'terraform destroy -auto-approve'
+                            echo 'Terraform destroy executed successfully'
+                        } else {
+                            sh 'terraform apply -auto-approve tfplan'
+                            echo 'Terraform apply executed successfully'
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 5: Destroy Success Message
+        stage('Step 5: Destroy Resources') {
+            when {
+                expression { params.ACTION == 'destroy' }
+            }
+            steps {
+                echo '========================================'
+                echo 'All resources destroyed successfully!'
+                echo '========================================'
+                echo 'Terraform destroy operation completed'
+                echo 'All infrastructure resources have been removed'
+            }
+        }
+
+        // Step 6: Generate Inventory and Push to GitHub (only for apply)
+        stage('Step 6: Generate Inventory and Push to GitHub') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                script {
+                    // Extract IPs from Terraform outputs
+                    def appIP
+                    def monIP
+                    
+                    dir('Terraform') {
+                        appIP = sh(
+                            script: 'terraform output -raw AppVM',
+                            returnStdout: true
+                        ).trim()
+                        
+                        monIP = sh(
+                            script: 'terraform output -raw MonitorVM',
+                            returnStdout: true
+                        ).trim()
+                    }
+                    
+                    echo "AppVM IP: ${appIP}"
+                    echo "MonitorVM IP: ${monIP}"
+                    
+                    // Create ansible directory if it doesn't exist
+                    sh 'mkdir -p ansible'
+                    
+                    // Generate inventory.ini file at root level
+                    writeFile file: 'ansible/inventory.ini', text: """
+[app]
+${appIP} ansible_user=ubuntu
+
+[monitor]
+${monIP} ansible_user=ubuntu
+"""
+                    echo 'Ansible inventory file generated successfully'
+                        
+                    // Push to GitHub
+                    withCredentials([usernamePassword(
+                        credentialsId: 'GitHub-cred',
+                        usernameVariable: 'GIT_USER',
+                        passwordVariable: 'GIT_TOKEN'
+                    )]) {
+                        sh """
+                            git config user.name "Light-zzz"
+                            git config user.email "dipeshvishwa767@gmail.com"
+                            
+                            git add ansible/inventory.ini
+                            
+                            if git diff --cached --quiet; then
+                                echo "No changes to commit"
+                            else
+                                git commit -m "Update Ansible inventory from Jenkins - AppVM: ${appIP}, MonitorVM: ${monIP}"
+                                git push https://\$GIT_USER:\$GIT_TOKEN@github.com/Light-zzz/DevOps_2_tier_Project-2.git HEAD:main
+                                echo "Inventory file pushed to GitHub successfully"
+                            fi
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                if (params.ACTION == 'apply') {
+                    echo '========================================'
+                    echo 'Terraform infrastructure created successfully!'
+                    echo 'Ansible inventory updated and pushed to GitHub'
+                    echo '========================================'
+                    // Trigger next Jenkinsfile-Ansible only on successful apply
+                    build job: 'Ansible-Pipeline', wait: false
+                    echo 'Triggered Ansible-Pipeline job'
+                } else {
+                    echo '========================================'
+                    echo 'Terraform destroy completed successfully!'
+                    echo '========================================'
+                }
+            }
+        }
+        failure {
+            echo '========================================'
+            echo 'Terraform pipeline failed'
+            echo '========================================'
+        }
+        always {
+            echo 'Pipeline execution completed'
+        }
+    }
+}
