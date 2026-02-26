@@ -1,0 +1,121 @@
+- hosts: monitor
+  become: yes
+  vars:
+    node_exporter_version: "1.6.1"
+    node_exporter_user: node_exporter
+
+  tasks:
+    # -----------------------------
+    # Update System
+    # -----------------------------
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    # -----------------------------
+    # Prometheus
+    # -----------------------------
+    - name: Install Prometheus
+      apt:
+        name: prometheus
+        state: present
+
+    - name: Enable and start Prometheus
+      service:
+        name: prometheus
+        state: started
+        enabled: yes
+
+    # -----------------------------
+    # Grafana (Official Repository)
+    # -----------------------------
+    - name: Install Grafana dependencies
+      apt:
+        name:
+          - apt-transport-https
+          - software-properties-common
+          - wget
+        state: present
+
+    - name: Add Grafana GPG key
+      get_url:
+        url: https://packages.grafana.com/gpg.key
+        dest: /usr/share/keyrings/grafana.key
+
+    - name: Add Grafana repository
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/grafana.key] https://packages.grafana.com/oss/deb stable main"
+        state: present
+        filename: grafana
+
+    - name: Update apt cache after adding Grafana repo
+      apt:
+        update_cache: yes
+
+    - name: Install Grafana
+      apt:
+        name: grafana
+        state: present
+
+    - name: Enable and start Grafana
+      service:
+        name: grafana-server
+        state: started
+        enabled: yes
+
+    # -----------------------------
+    # Node Exporter
+    # -----------------------------
+    - name: Create node_exporter user
+      user:
+        name: "{{ node_exporter_user }}"
+        shell: /usr/sbin/nologin
+        system: yes
+        create_home: no
+
+    - name: Download Node Exporter
+      get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: /tmp/node_exporter.tar.gz
+
+    - name: Extract Node Exporter
+      unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /tmp
+        remote_src: yes
+
+    - name: Install Node Exporter binary
+      copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: /usr/local/bin/node_exporter
+        owner: "{{ node_exporter_user }}"
+        group: "{{ node_exporter_user }}"
+        mode: '0755'
+        remote_src: yes
+
+    - name: Create Node Exporter systemd service
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User={{ node_exporter_user }}
+          Group={{ node_exporter_user }}
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd
+      command: systemctl daemon-reexec
+
+    - name: Enable and start Node Exporter
+      service:
+        name: node_exporter
+        state: started
+        enabled: yes
