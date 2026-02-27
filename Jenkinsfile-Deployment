@@ -33,13 +33,13 @@ pipeline {
                     echo 'Validating required files...'
                     
                     def requiredFiles = [
-                        'app/app.py',
-                        'app/requirements.txt',
-                        'app/Dockerfile',
-                        'app/docker-compose.yml',
-                        'app/templates/login.html',
-                        'app/templates/registration.html',
-                        'app/templates/index.html'
+                        'App/app.py',
+                        'App/requirements.txt',
+                        'App/Dockerfile',
+                        'App/docker-compose.yml',
+                        'App/templates/login.html',
+                        'App/templates/registration.html',
+                        'App/templates/index.html'
                     ]
                     
                     requiredFiles.each { file ->
@@ -54,24 +54,24 @@ pipeline {
             }
         }
 
-        // Stage 3: Copy app/* to Application-VM
+        // Stage 3: Copy App/* to Application-VM
         stage('Stage 3: Copy App Files to Application-VM') {
             steps {
                 script {
-                    // Fetch AppVM IP from ansible/inventory.ini
+                    // Fetch AppVM IP from Ansible/inventory.ini
                     def appIP = sh(
                         script: """
-                            grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                            grep -A 1 '^\\[app\\]' Ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
                         """,
                         returnStdout: true
                     ).trim()
                     
                     if (!appIP) {
-                        error('Failed to extract AppVM IP from ansible/inventory.ini')
+                        error('Failed to extract AppVM IP from Ansible/inventory.ini')
                     }
                     
                     echo "AppVM IP: ${appIP}"
-                    echo "Copying app/* files to Application-VM (${appIP})..."
+                    echo "Copying App/* files to Application-VM (${appIP})..."
                     
                     withCredentials([sshUserPrivateKey(
                         credentialsId: 'ansible-ssh',
@@ -83,9 +83,9 @@ pipeline {
                             # Create app directory on remote VM
                             ssh -o StrictHostKeyChecking=no -i "\$SSH_KEY" ubuntu@${appIP} 'mkdir -p /home/ubuntu/app'
                             
-                            # Copy app/* directory to Application-VM
+                            # Copy App/* directory to Application-VM
                             rsync -avz --delete -e "ssh -i \$SSH_KEY -o StrictHostKeyChecking=no" \
-                                app/ ubuntu@${appIP}:/home/ubuntu/app/
+                                App/ ubuntu@${appIP}:/home/ubuntu/app/
                             
                             echo "App files copied successfully to Application-VM (${appIP})"
                         """
@@ -103,7 +103,7 @@ pipeline {
                 script {
                     def appIP = sh(
                         script: """
-                            grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                            grep -A 1 '^\\[app\\]' Ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
                         """,
                         returnStdout: true
                     ).trim()
@@ -155,7 +155,7 @@ EOF
                 script {
                     def appIP = sh(
                         script: """
-                            grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                            grep -A 1 '^\\[app\\]' Ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
                         """,
                         returnStdout: true
                     ).trim()
@@ -193,7 +193,7 @@ EOF
                 script {
                     def appIP = sh(
                         script: """
-                            grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                            grep -A 1 '^\\[app\\]' Ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
                         """,
                         returnStdout: true
                     ).trim()
@@ -234,7 +234,7 @@ EOF
                 script {
                     def appIP = sh(
                         script: """
-                            grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                            grep -A 1 '^\\[app\\]' Ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
                         """,
                         returnStdout: true
                     ).trim()
@@ -274,7 +274,7 @@ EOF
                 script {
                     def appIP = sh(
                         script: """
-                            grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                            grep -A 1 '^\\[app\\]' Ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
                         """,
                         returnStdout: true
                     ).trim()
@@ -343,7 +343,7 @@ EOF
             steps {
                 script {
                     def appIP = sh(
-                        script: "grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'",
+                        script: "grep -A 1 '^\\[app\\]' Ansible/inventory.ini | tail -n 1 | awk '{print \$1}'",
                         returnStdout: true
                     ).trim()
         
@@ -384,7 +384,7 @@ EOF
                 script {
                     def appIP = sh(
                         script: """
-                            grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                            grep -A 1 '^\\[app\\]' Ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
                         """,
                         returnStdout: true
                     ).trim()
@@ -433,7 +433,7 @@ EOF
                     if (params.ACTION == 'up') {
                         def appIP = sh(
                             script: """
-                                grep -A 1 '^\\[app\\]' ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
+                                grep -A 1 '^\\[app\\]' Ansible/inventory.ini | tail -n 1 | awk '{print \$1}'
                             """,
                             returnStdout: true
                         ).trim()
@@ -501,4 +501,5 @@ EOF
     }
 
 }
+
 
