@@ -113,10 +113,10 @@ pipeline {
                     echo "MonitorVM IP: ${monIP}"
                     
                     // Create ansible directory if it doesn't exist
-                    sh 'mkdir -p ansible'
+                    sh 'mkdir -p Ansible'
                     
                     // Generate inventory.ini file at root level
-                    writeFile file: 'ansible/inventory.ini', text: """
+                    writeFile file: 'Ansible/inventory.ini', text: """
 [app]
 ${appIP} ansible_user=ubuntu
 
@@ -135,7 +135,7 @@ ${monIP} ansible_user=ubuntu
                             git config user.name "Dipesh-Vishwakarma"
                             git config user.email "dipeshaws767@gmail.com"
                             
-                            git add ansible/inventory.ini
+                            git add Ansible/inventory.ini
                             
                             if git diff --cached --quiet; then
                                 echo "No changes to commit"
@@ -179,3 +179,4 @@ ${monIP} ansible_user=ubuntu
         }
     }
 }
+
