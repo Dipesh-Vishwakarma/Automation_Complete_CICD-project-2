@@ -1,20 +1,57 @@
+# ---------------------------------------------------
+# Base Image
+# ---------------------------------------------------
 
-FROM python:3.10-slim
+FROM python:3.11-slim
+
+# ---------------------------------------------------
+# Environment Variables
+# ---------------------------------------------------
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# ---------------------------------------------------
+# Working Directory
+# ---------------------------------------------------
 
 WORKDIR /app
 
-# Install system dependencies for mysqlclient
+# ---------------------------------------------------
+# Install System Dependencies
+# ---------------------------------------------------
+
 RUN apt-get update && apt-get install -y \
     gcc \
-    pkg-config \
-    default-libmysqlclient-dev \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# ---------------------------------------------------
+# Copy Requirements File
+# ---------------------------------------------------
+
 COPY requirements.txt .
+
+# ---------------------------------------------------
+# Install Python Dependencies
+# ---------------------------------------------------
+
 RUN pip install --no-cache-dir -r requirements.txt
+
+# ---------------------------------------------------
+# Copy Application Files
+# ---------------------------------------------------
 
 COPY . .
 
+# ---------------------------------------------------
+# Expose Flask Port
+# ---------------------------------------------------
+
 EXPOSE 5000
 
-CMD ["python", "app.py"]
+# ---------------------------------------------------
+# Run Application using Gunicorn
+# ---------------------------------------------------
+
+CMD ["gunicorn", "--workers", "3", "--bind", "0.0.0.0:5000", "app:app"]

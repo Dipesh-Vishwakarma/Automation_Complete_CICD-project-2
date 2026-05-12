@@ -1,211 +1,343 @@
 import os
 import time
-import pymysql
-from flask import Flask, render_template, request, redirect, url_for, session, g
-from werkzeug.security import generate_password_hash, check_password_hash
+import logging
+import psycopg2
 
-# Initialize Flask application
-# Templates are automatically served from the 'templates' directory
-# Static files (CSS, JS) are automatically served from the 'static' directory
-app = Flask(__name__, template_folder='templates', static_folder='static')
+from psycopg2.extras import RealDictCursor
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    session,
+    g
+)
 
-# Configure Flask secret key from environment variable
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'supersecretkey')
+from werkzeug.security import (
+    generate_password_hash,
+    check_password_hash
+)
 
-# MySQL Configuration from docker-compose environment variables
-MYSQL_CONFIG = {
-    'host': os.environ.get('MYSQL_HOST', 'db'),
-    'user': os.environ.get('MYSQL_USER', 'root'),
-    'password': os.environ.get('MYSQL_PASSWORD', 'root'),
-    'database': os.environ.get('MYSQL_DATABASE', 'registration_db'),
-    'port': int(os.environ.get('MYSQL_PORT', 3306)),
-    'cursorclass': pymysql.cursors.DictCursor
+# ---------------------------------------------------
+# Flask App Initialization
+# ---------------------------------------------------
+
+app = Flask(
+    __name__,
+    template_folder='templates',
+    static_folder='static'
+)
+
+# ---------------------------------------------------
+# Logging Configuration
+# ---------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------
+# Secret Key Configuration
+# ---------------------------------------------------
+
+app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+
+if not app.secret_key:
+    raise ValueError("FLASK_SECRET_KEY environment variable not set")
+
+# ---------------------------------------------------
+# Flask Session Security
+# ---------------------------------------------------
+
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SECURE'] = False
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# ---------------------------------------------------
+# PostgreSQL Configuration
+# ---------------------------------------------------
+
+DB_CONFIG = {
+    "host": os.environ.get("POSTGRES_HOST"),
+    "database": os.environ.get("POSTGRES_DB"),
+    "user": os.environ.get("POSTGRES_USER"),
+    "password": os.environ.get("POSTGRES_PASSWORD"),
+    "port": os.environ.get("POSTGRES_PORT", 5432)
 }
 
+# ---------------------------------------------------
+# Database Connection
+# ---------------------------------------------------
+
 def get_db():
-    """Get MySQL database connection"""
+
     if 'db' not in g:
-        g.db = pymysql.connect(**MYSQL_CONFIG)
+
+        g.db = psycopg2.connect(
+            host=DB_CONFIG['host'],
+            database=DB_CONFIG['database'],
+            user=DB_CONFIG['user'],
+            password=DB_CONFIG['password'],
+            port=DB_CONFIG['port'],
+            cursor_factory=RealDictCursor,
+            connect_timeout=5
+        )
+
     return g.db
 
-def get_db_without_database():
-    """Get MySQL connection without specifying database (for creating databases)"""
-    config = MYSQL_CONFIG.copy()
-    config.pop('database', None)
-    return pymysql.connect(**config)
+# ---------------------------------------------------
+# Close Database Connection
+# ---------------------------------------------------
 
 @app.teardown_appcontext
 def close_db(error):
-    """Close database connection"""
+
     db = g.pop('db', None)
+
     if db is not None:
         db.close()
 
+# ---------------------------------------------------
+# Database Initialization
+# ---------------------------------------------------
+
 def init_database():
-    """Initialize main database and create users table if it doesn't exist"""
-    max_retries = 30
-    retry_count = 0
-    
-    while retry_count < max_retries:
+
+    retries = 20
+
+    while retries > 0:
+
         try:
-            # Test database connection
-            conn = pymysql.connect(**MYSQL_CONFIG)
+
+            conn = psycopg2.connect(
+                host=DB_CONFIG['host'],
+                database=DB_CONFIG['database'],
+                user=DB_CONFIG['user'],
+                password=DB_CONFIG['password'],
+                port=DB_CONFIG['port'],
+                cursor_factory=RealDictCursor,
+                connect_timeout=5
+            )
+
             cur = conn.cursor()
-            
-            # Create users table if it doesn't exist
+
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    id SERIAL PRIMARY KEY,
                     username VARCHAR(100) UNIQUE NOT NULL,
                     email VARCHAR(100) UNIQUE NOT NULL,
                     password VARCHAR(255) NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             conn.commit()
+
             cur.close()
             conn.close()
-            
-            print("Main database initialized successfully!")
-            print(f"Users table created/verified in database: {MYSQL_CONFIG['database']}")
-            return True
-            
-        except Exception as e:
-            retry_count += 1
-            if retry_count >= max_retries:
-                print(f"Failed to initialize database after {max_retries} attempts: {str(e)}")
-                raise
-            print(f"Waiting for MySQL to be ready... (Attempt {retry_count}/{max_retries})")
-            time.sleep(2)
-    
-    return False
 
-def create_user_database(username):
-    """Create a database for the specific username and initialize user_data table"""
-    try:
-        # Connect without specifying database
-        conn = get_db_without_database()
-        cur = conn.cursor()
-        
-        # Sanitize username for database name (only alphanumeric and underscore)
-        db_name = f"user_{username.lower().replace(' ', '_').replace('-', '_')}"
-        # Remove any special characters
-        db_name = ''.join(c for c in db_name if c.isalnum() or c == '_')
-        
-        # Create database for the user
-        cur.execute(f"CREATE DATABASE IF NOT EXISTS `{db_name}`")
-        conn.commit()
-        
-        # Switch to the user's database
-        cur.execute(f"USE `{db_name}`")
-        
-        # Create user_data table in the user's database
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS user_data (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                data_key VARCHAR(255) NOT NULL,
-                data_value TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_data_key (data_key)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        """)
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        
-        print(f"Created database '{db_name}' for user '{username}'")
-        print(f"Created user_data table in database '{db_name}'")
-        return db_name
-        
-    except Exception as e:
-        print(f"Error creating user database: {str(e)}")
-        raise
+            logger.info("DATABASE_INITIALIZED")
+
+            return
+
+        except Exception as e:
+
+            logger.warning(
+                f"POSTGRES_WAITING error={str(e)}"
+            )
+
+            retries -= 1
+
+            time.sleep(5)
+
+    raise Exception("Database initialization failed")
+
+# ---------------------------------------------------
+# Health Check Endpoint
+# ---------------------------------------------------
+
+@app.route("/health")
+def health():
+
+    return {
+        "status": "healthy"
+    }, 200
+
+# ---------------------------------------------------
+# Home Route
+# ---------------------------------------------------
 
 @app.route('/')
 def home():
-    """Home/Welcome page - shows username if logged in, otherwise redirects to login"""
+
     if 'username' in session:
-        return render_template('index.html', username=session['username'])
+
+        return render_template(
+            'index.html',
+            username=session['username']
+        )
+
     return redirect(url_for('login'))
+
+# ---------------------------------------------------
+# Registration Route
+# ---------------------------------------------------
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+
     if request.method == 'POST':
-        username = request.form['username']
-        email = request.form['email']
+
+        username = request.form['username'].strip()
+        email = request.form['email'].strip()
         password = request.form['password']
-        
-        # Hash the password before storing
+
         hashed_password = generate_password_hash(password)
-        
+
         try:
+
             db = get_db()
+
             cur = db.cursor()
-            
-            # Insert user into main users table
+
             cur.execute(
-                "INSERT INTO users(username, email, password) VALUES (%s, %s, %s)",
+                """
+                INSERT INTO users(username, email, password)
+                VALUES (%s, %s, %s)
+                """,
                 (username, email, hashed_password)
             )
+
             db.commit()
+
             cur.close()
-            
-            # Create user-specific database and table
-            try:
-                user_db_name = create_user_database(username)
-                print(f"User '{username}' registered successfully with database '{user_db_name}'")
-            except Exception as e:
-                print(f"Warning: User registered but database creation failed: {str(e)}")
-            
+
+            logger.info(
+                f"REGISTER_SUCCESS user={username}"
+            )
+
             return redirect(url_for('login'))
+
         except Exception as e:
-            error_msg = "Registration failed. Username or email may already exist."
-            print(f"Registration error: {str(e)}")
-            return render_template('registration.html', error=error_msg)
-    
+
+            try:
+                db.rollback()
+            except:
+                pass
+
+            logger.error(
+                f"REGISTER_FAILED user={username} error={str(e)}"
+            )
+
+            return render_template(
+                'registration.html',
+                error="Registration failed. Username or email may already exist."
+            )
+
     return render_template('registration.html')
+
+# ---------------------------------------------------
+# Login Route
+# ---------------------------------------------------
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+
     if request.method == 'POST':
-        username = request.form['username']
+
+        username = request.form['username'].strip()
         password = request.form['password']
-        
+
         try:
+
             db = get_db()
+
             cur = db.cursor()
-            cur.execute("SELECT * FROM users WHERE username=%s", (username,))
+
+            cur.execute(
+                """
+                SELECT * FROM users
+                WHERE username = %s
+                """,
+                (username,)
+            )
+
             user = cur.fetchone()
+
             cur.close()
-            
-            if user and check_password_hash(user['password'], password):
-            #if user and user['password'] == password:
+
+            if user and check_password_hash(
+                user['password'],
+                password
+            ):
+
                 session['username'] = username
+
+                logger.info(
+                    f"LOGIN_SUCCESS user={username}"
+                )
+
                 return redirect(url_for('home'))
-            
-            return render_template('login.html', error="Invalid username or password")
+
+            logger.warning(
+                f"LOGIN_FAILED user={username}"
+            )
+
+            return render_template(
+                'login.html',
+                error="Invalid username or password"
+            )
+
         except Exception as e:
-            print(f"Login error: {str(e)}")
-            return render_template('login.html', error="Login failed. Please try again.")
-    
+
+            logger.error(
+                f"LOGIN_ERROR user={username} error={str(e)}"
+            )
+
+            return render_template(
+                'login.html',
+                error="Login failed. Please try again."
+            )
+
     return render_template('login.html')
+
+# ---------------------------------------------------
+# Logout Route
+# ---------------------------------------------------
 
 @app.route('/logout')
 def logout():
+
+    username = session.get('username', 'unknown')
+
     session.clear()
+
+    logger.info(
+        f"LOGOUT_SUCCESS user={username}"
+    )
+
     return redirect(url_for('login'))
 
-if __name__ == "__main__":
-    # Initialize database before starting the app
-    print("Starting Flask application...")
-    print(f"Connecting to MySQL at {MYSQL_CONFIG['host']}:{MYSQL_CONFIG['port']}")
-    print(f"Database: {MYSQL_CONFIG['database']}")
-    
-    init_database()
-    
-    print("Flask app is ready!")
+# ---------------------------------------------------
+# Initialize Database on Startup
+# ---------------------------------------------------
 
-    app.run(host="0.0.0.0", port=5000, debug=False)
+init_database()
+
+logger.info("FLASK_APPLICATION_READY")
+
+# ---------------------------------------------------
+# Main Entry Point
+# ---------------------------------------------------
+
+if __name__ == "__main__":
+
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=False
+    )
